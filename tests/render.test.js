@@ -1,4 +1,4 @@
-import { calPageBox, renderOfd, renderOfdByScale, setPageScale } from '../index.js';
+import { calPageBox, getPageScale, renderOfd, renderOfdByScale, renderPage, setPageScale } from '../index.js';
 
 describe('OFD Rendering Functions', () => {
   const mockOfdDocument = {
@@ -64,7 +64,42 @@ describe('OFD Rendering Functions', () => {
     });
   });
 
+  describe('renderPage', () => {
+    test('uses the target page width after other page measurements', () => {
+      const [landscape, portrait] = mockOfdDocument.pages;
+      const box = calPageBox(1720, mockOfdDocument.document, landscape);
+      calPageBox(800, mockOfdDocument.document, landscape);
+      calPageBox(1720, mockOfdDocument.document, portrait);
+      const previousScale = getPageScale();
+
+      const pageDiv = document.createElement('div');
+      pageDiv.style.width = `${box.w}px`;
+      pageDiv.style.height = `${box.h}px`;
+      renderPage(pageDiv, landscape, {}, {}, {}, {});
+
+      expect(parseFloat(pageDiv.firstElementChild.style.width)).toBeCloseTo(30 * 1720 / 297);
+      expect(getPageScale()).toBe(previousScale);
+    });
+  });
+
   describe('renderOfdByScale', () => {
+    test('restores the fitted scale of an 80 mm receipt', () => {
+      const receipt = {
+        ...mockOfdDocument,
+        pages: [mockOfdDocument.pages[0]],
+        document: { 'ofd:CommonData': { 'ofd:PageArea': { 'ofd:PhysicalBox': '0 0 80 150' } } },
+      };
+      renderOfd(1720, receipt);
+      const fittedScale = getPageScale();
+      expect(fittedScale).toBe(21.5);
+
+      setPageScale(2);
+      setPageScale(fittedScale);
+      expect(getPageScale()).toBe(fittedScale);
+      const [page] = renderOfdByScale(receipt);
+      expect(parseFloat(page.style.width)).toBeCloseTo(1720);
+    });
+
     test('can use an explicit scale after fitting a narrow container', () => {
       renderOfd(120.5, mockOfdDocument);
       setPageScale(2);

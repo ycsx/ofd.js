@@ -26,7 +26,8 @@ import {
     parseColor,
     parseCtm,
     parseStBox,
-    fitPageScaleToWidth,
+    getPageScal,
+    setPageScal,
     converterBox,
 } from "./ofd_util";
 
@@ -41,15 +42,20 @@ export const renderPageBox = function (screenWidth, pages, document) {
     return pageBoxs;
 }
 
+// renderPage receives no document, so retain the physical width resolved during measurement.
+const measuredPageWidths = new WeakMap();
+
 const getPageBox = function (document, page) {
     const pageId = Object.keys(page)[0];
     const area = page[pageId].json['ofd:Area'] || document['ofd:CommonData']['ofd:PageArea'];
-    return parseStBox(area['ofd:PhysicalBox'] || area['ofd:ApplicationBox'] || area['ofd:ContentBox']);
+    const box = parseStBox(area['ofd:PhysicalBox'] || area['ofd:ApplicationBox'] || area['ofd:ContentBox']);
+    measuredPageWidths.set(page, box.w);
+    return box;
 }
 
 export const calPageBox = function (screenWidth, document, page) {
     const box = getPageBox(document, page);
-    fitPageScaleToWidth(screenWidth, box.w);
+    setPageScal(screenWidth / box.w);
     return converterBox(box);
 }
 
@@ -70,6 +76,20 @@ const renderLayerFromTemplate = function (tpls, template, pageDiv, fontResObj, d
 }
 
 export const renderPage = function (pageDiv, page, tpls, fontResObj, drawParamResObj, multiMediaResObj) {
+    const previousScale = getPageScal();
+    const physicalWidth = measuredPageWidths.get(page);
+    const cssWidth = pageDiv.style.width;
+    try {
+        if (physicalWidth > 0 && cssWidth.endsWith('px')) {
+            setPageScal(parseFloat(cssWidth) / physicalWidth);
+        }
+        renderPageContent(pageDiv, page, tpls, fontResObj, drawParamResObj, multiMediaResObj);
+    } finally {
+        setPageScal(previousScale);
+    }
+}
+
+export const renderPageContent = function (pageDiv, page, tpls, fontResObj, drawParamResObj, multiMediaResObj) {
     const pageId = Object.keys(page)[0];
     const template = page[pageId]['json']['ofd:Template'];
     if (Array.isArray(template)) { // 当使用多个模板时

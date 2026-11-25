@@ -436,7 +436,7 @@ console.log(`缩放后页面尺寸: ${box.w}x${box.h}`);
 
 ### renderPage(pageDiv, page, templates, fonts, drawParams, multiMedia)
 
-在指定的DOM元素中渲染单个页面。（高级API，通常无需直接调用）
+在指定的 DOM 元素中渲染单个页面。批量测量后逐页绘制时，请将该页测得的宽高以 CSS 像素写入容器的 `style.width` 和 `style.height`，再传入测量时的页面对象。
 
 **参数：**
 

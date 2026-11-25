@@ -26,7 +26,7 @@
  * PathContent模式使用新增Canvas方式展示
  */
 
-import {calPageBox, calPageBoxScale, renderPage} from "./ofd_render";
+import {calPageBox, calPageBoxScale, renderPage, renderPageContent} from "./ofd_render";
 import {pipeline} from "./pipeline";
 import {
     getDocRoots,
@@ -81,7 +81,7 @@ export const renderOfd = function (screenWidth, ofd) {
         let pageDiv = document.createElement('div');
         pageDiv.id = pageId;
         pageDiv.setAttribute('style', `margin-bottom: 20px;position: relative;width:${box.w}px;height:${box.h}px;background: white;`)
-        renderPage(pageDiv, page, ofd.tpls, ofd.fontResObj, ofd.drawParamResObj, ofd.multiMediaResObj);
+        renderPageContent(pageDiv, page, ofd.tpls, ofd.fontResObj, ofd.drawParamResObj, ofd.multiMediaResObj);
         divArray.push(pageDiv);
     }
     return divArray;
@@ -98,7 +98,7 @@ export const renderOfdByScale = function (ofd) {
         let pageDiv = document.createElement('div');
         pageDiv.id = pageId;
         pageDiv.setAttribute('style', `margin-bottom: 20px;position: relative;width:${box.w}px;height:${box.h}px;background: white;`)
-        renderPage(pageDiv, page, ofd.tpls, ofd.fontResObj, ofd.drawParamResObj, ofd.multiMediaResObj);
+        renderPageContent(pageDiv, page, ofd.tpls, ofd.fontResObj, ofd.drawParamResObj, ofd.multiMediaResObj);
         divArray.push(pageDiv);
     }
     return divArray;

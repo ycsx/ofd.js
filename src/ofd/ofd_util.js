@@ -115,13 +115,9 @@ export const calPathPoint = function (abbreviatedPoint) {
 
 let Scale = 10; // CSS pixels per OFD millimeter
 
-export const fitPageScaleToWidth = function (screenWidth, pageWidth) {
-    const scale = screenWidth / pageWidth;
-    Scale = Number.isFinite(scale) && scale >= 0 ? scale : 1;
-}
-
 export const setPageScal = function (scale) {
-    Scale = scale > 0 ? Math.min(scale, 10) : 1;
+    const value = Number(scale);
+    Scale = Number.isFinite(value) && value >= 0 ? value : 1;
 }
 
 export const getPageScal = function () {
