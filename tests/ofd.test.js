@@ -1,4 +1,4 @@
-import { parseOfdDocument, getPageScale, setPageScale } from '../../index.js';
+import { parseOfdDocument, getPageScale, setPageScale } from '../index.js';
 
 describe('OFD Module Basic Tests', () => {
   describe('Page Scale Functions', () => {

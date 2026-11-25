@@ -26,8 +26,8 @@ import {
     parseColor,
     parseCtm,
     parseStBox,
-    setPageScal,
-    converterBox, setMaxPageScal,
+    fitPageScaleToWidth,
+    converterBox,
 } from "./ofd_util";
 
 export const renderPageBox = function (screenWidth, pages, document) {
@@ -41,88 +41,20 @@ export const renderPageBox = function (screenWidth, pages, document) {
     return pageBoxs;
 }
 
+const getPageBox = function (document, page) {
+    const pageId = Object.keys(page)[0];
+    const area = page[pageId].json['ofd:Area'] || document['ofd:CommonData']['ofd:PageArea'];
+    return parseStBox(area['ofd:PhysicalBox'] || area['ofd:ApplicationBox'] || area['ofd:ContentBox']);
+}
+
 export const calPageBox = function (screenWidth, document, page) {
-    const area = page[Object.keys(page)[0]]['json']['ofd:Area'];
-    let box;
-    if (area) {
-        const physicalBox = area['ofd:PhysicalBox']
-        if (physicalBox) {
-            box = (physicalBox);
-        } else {
-            const applicationBox = area['ofd:ApplicationBox']
-            if (applicationBox) {
-                box = (applicationBox);
-            } else {
-                const contentBox = area['ofd:ContentBox']
-                if (contentBox) {
-                    box = (contentBox);
-                }
-            }
-        }
-    } else {
-        let documentArea = document['ofd:CommonData']['ofd:PageArea']
-        const physicalBox = documentArea['ofd:PhysicalBox']
-        if (physicalBox) {
-            box = (physicalBox);
-        } else {
-            const applicationBox = documentArea['ofd:ApplicationBox']
-            if (applicationBox) {
-                box = (applicationBox);
-            } else {
-                const contentBox = documentArea['ofd:ContentBox']
-                if (contentBox) {
-                    box = (contentBox);
-                }
-            }
-        }
-    }
-    let array = box.split(' ');
-    const scale = ((screenWidth - 10) / parseFloat(array[2])).toFixed(1);
-    setMaxPageScal(scale);
-    setPageScal(scale);
-    box = parseStBox( box);
-    box = converterBox(box)
-    return box;
+    const box = getPageBox(document, page);
+    fitPageScaleToWidth(screenWidth, box.w);
+    return converterBox(box);
 }
 
 export const calPageBoxScale = function (document, page) {
-    const area = page[Object.keys(page)[0]]['json']['ofd:Area'];
-    let box;
-    if (area) {
-        const physicalBox = area['ofd:PhysicalBox']
-        if (physicalBox) {
-            box = (physicalBox);
-        } else {
-            const applicationBox = area['ofd:ApplicationBox']
-            if (applicationBox) {
-                box = (applicationBox);
-            } else {
-                const contentBox = area['ofd:ContentBox']
-                if (contentBox) {
-                    box = (contentBox);
-                }
-            }
-        }
-    } else {
-        let documentArea = document['ofd:CommonData']['ofd:PageArea']
-        const physicalBox = documentArea['ofd:PhysicalBox']
-        if (physicalBox) {
-            box = (physicalBox);
-        } else {
-            const applicationBox = documentArea['ofd:ApplicationBox']
-            if (applicationBox) {
-                box = (applicationBox);
-            } else {
-                const contentBox = documentArea['ofd:ContentBox']
-                if (contentBox) {
-                    box = (contentBox);
-                }
-            }
-        }
-    }
-    box = parseStBox( box);
-    box = converterBox(box)
-    return box;
+    return converterBox(getPageBox(document, page));
 }
 
 // 根据模板来渲染层节点
