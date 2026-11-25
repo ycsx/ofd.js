@@ -26,8 +26,9 @@ import {
     parseColor,
     parseCtm,
     parseStBox,
+    getPageScal,
     setPageScal,
-    converterBox, setMaxPageScal,
+    converterBox,
 } from "./ofd_util";
 
 export const renderPageBox = function (screenWidth, pages, document) {
@@ -41,88 +42,25 @@ export const renderPageBox = function (screenWidth, pages, document) {
     return pageBoxs;
 }
 
-export const calPageBox = function (screenWidth, document, page) {
-    const area = page[Object.keys(page)[0]]['json']['ofd:Area'];
-    let box;
-    if (area) {
-        const physicalBox = area['ofd:PhysicalBox']
-        if (physicalBox) {
-            box = (physicalBox);
-        } else {
-            const applicationBox = area['ofd:ApplicationBox']
-            if (applicationBox) {
-                box = (applicationBox);
-            } else {
-                const contentBox = area['ofd:ContentBox']
-                if (contentBox) {
-                    box = (contentBox);
-                }
-            }
-        }
-    } else {
-        let documentArea = document['ofd:CommonData']['ofd:PageArea']
-        const physicalBox = documentArea['ofd:PhysicalBox']
-        if (physicalBox) {
-            box = (physicalBox);
-        } else {
-            const applicationBox = documentArea['ofd:ApplicationBox']
-            if (applicationBox) {
-                box = (applicationBox);
-            } else {
-                const contentBox = documentArea['ofd:ContentBox']
-                if (contentBox) {
-                    box = (contentBox);
-                }
-            }
-        }
-    }
-    let array = box.split(' ');
-    const scale = ((screenWidth - 10) / parseFloat(array[2])).toFixed(1);
-    setMaxPageScal(scale);
-    setPageScal(scale);
-    box = parseStBox( box);
-    box = converterBox(box)
+// renderPage receives no document, so retain the physical width resolved during measurement.
+const measuredPageWidths = new WeakMap();
+
+const getPageBox = function (document, page) {
+    const pageId = Object.keys(page)[0];
+    const area = page[pageId].json['ofd:Area'] || document['ofd:CommonData']['ofd:PageArea'];
+    const box = parseStBox(area['ofd:PhysicalBox'] || area['ofd:ApplicationBox'] || area['ofd:ContentBox']);
+    measuredPageWidths.set(page, box.w);
     return box;
 }
 
+export const calPageBox = function (screenWidth, document, page) {
+    const box = getPageBox(document, page);
+    setPageScal(screenWidth / box.w);
+    return converterBox(box);
+}
+
 export const calPageBoxScale = function (document, page) {
-    const area = page[Object.keys(page)[0]]['json']['ofd:Area'];
-    let box;
-    if (area) {
-        const physicalBox = area['ofd:PhysicalBox']
-        if (physicalBox) {
-            box = (physicalBox);
-        } else {
-            const applicationBox = area['ofd:ApplicationBox']
-            if (applicationBox) {
-                box = (applicationBox);
-            } else {
-                const contentBox = area['ofd:ContentBox']
-                if (contentBox) {
-                    box = (contentBox);
-                }
-            }
-        }
-    } else {
-        let documentArea = document['ofd:CommonData']['ofd:PageArea']
-        const physicalBox = documentArea['ofd:PhysicalBox']
-        if (physicalBox) {
-            box = (physicalBox);
-        } else {
-            const applicationBox = documentArea['ofd:ApplicationBox']
-            if (applicationBox) {
-                box = (applicationBox);
-            } else {
-                const contentBox = documentArea['ofd:ContentBox']
-                if (contentBox) {
-                    box = (contentBox);
-                }
-            }
-        }
-    }
-    box = parseStBox( box);
-    box = converterBox(box)
-    return box;
+    return converterBox(getPageBox(document, page));
 }
 
 // 根据模板来渲染层节点
@@ -138,6 +76,20 @@ const renderLayerFromTemplate = function (tpls, template, pageDiv, fontResObj, d
 }
 
 export const renderPage = function (pageDiv, page, tpls, fontResObj, drawParamResObj, multiMediaResObj) {
+    const previousScale = getPageScal();
+    const physicalWidth = measuredPageWidths.get(page);
+    const cssWidth = pageDiv.style.width;
+    try {
+        if (physicalWidth > 0 && cssWidth.endsWith('px')) {
+            setPageScal(parseFloat(cssWidth) / physicalWidth);
+        }
+        renderPageContent(pageDiv, page, tpls, fontResObj, drawParamResObj, multiMediaResObj);
+    } finally {
+        setPageScal(previousScale);
+    }
+}
+
+export const renderPageContent = function (pageDiv, page, tpls, fontResObj, drawParamResObj, multiMediaResObj) {
     const pageId = Object.keys(page)[0];
     const template = page[pageId]['json']['ofd:Template'];
     if (Array.isArray(template)) { // 当使用多个模板时

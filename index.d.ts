@@ -83,9 +83,9 @@ export interface ParseOptions {
 export function parseOfdDocument(options: ParseOptions): void;
 
 /**
- * 根据屏幕宽度渲染OFD文档
+ * 将每页等比渲染到指定宽度
  * 
- * @param screenWidth - 屏幕宽度（像素）
+ * @param screenWidth - 容器中用于显示页面的宽度（CSS 像素）
  * @param ofdDocument - OFD文档对象
  * @returns 页面DOM元素数组
  * 
@@ -138,9 +138,9 @@ export function setPageScale(scale: number): void;
 export function getPageScale(): number;
 
 /**
- * 计算页面在指定屏幕宽度下的尺寸
+ * 计算页面按指定宽度等比渲染后的尺寸
  * 
- * @param screenWidth - 屏幕宽度（像素）
+ * @param screenWidth - 页面的目标宽度（CSS 像素）
  * @param document - OFD文档对象
  * @param page - 页面对象
  * @returns 页面尺寸信息

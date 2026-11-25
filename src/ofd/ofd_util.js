@@ -113,23 +113,11 @@ export const calPathPoint = function (abbreviatedPoint) {
     return pointList;
 }
 
-const millimetersToPixel = function (mm, dpi) {
-    //毫米转像素：mm * dpi / 25.4
-    return ((mm * dpi / 25.4));
-}
-
-let MaxScale = 10;
-
-let Scale = MaxScale;
-
-export const setMaxPageScal = function (scale) {
-    MaxScale = scale > 5 ? 5 : scale;
-}
+let Scale = 10; // CSS pixels per OFD millimeter
 
 export const setPageScal = function (scale) {
-    // scale = Math.ceil(scale);
-    Scale = scale > 1 ? scale : 1;
-    Scale = Scale > MaxScale ? MaxScale : Scale;
+    const value = Number(scale);
+    Scale = Number.isFinite(value) && value >= 0 ? value : 1;
 }
 
 export const getPageScal = function () {
@@ -137,7 +125,7 @@ export const getPageScal = function () {
 }
 
 export const converterDpi = function (width) {
-    return millimetersToPixel(width, Scale * 25.4);
+    return width * Scale;
 }
 
 export const deltaFormatter = function (delta) {
@@ -320,7 +308,7 @@ export const getFontFamily = function (font) {
 
 export const parseStBox = function (obj) {
     if (obj) {
-        let array = obj.split(' ');
+        let array = obj.trim().split(/\s+/);
         return {
             x: (parseFloat(array[0])), y: (parseFloat(array[1])),
             w: (parseFloat(array[2])), h: (parseFloat(array[3]))

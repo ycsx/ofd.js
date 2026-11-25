@@ -305,7 +305,7 @@ parseOfdDocument({
 
 ### renderOfd(screenWidth, ofdDocument)
 
-根据指定宽度渲染OFD文档，返回DOM页面数组。
+每页按 `screenWidth` 指定的 CSS 像素宽度等比渲染，返回 DOM 页面数组。传入容器可用于显示页面的内容宽度，内边距和预留空白由调用方扣除。
 
 **参数：**
 
@@ -390,7 +390,7 @@ console.log(`当前缩放: ${currentScale * 100}%`);
 
 ### calPageBox(screenWidth, document, page)
 
-计算页面在指定屏幕宽度下的尺寸。
+按与 `renderOfd` 相同的比例计算页面尺寸。传入页面的目标宽度（CSS 像素），高度按页面原始宽高比计算。
 
 **参数：**
 
@@ -436,7 +436,7 @@ console.log(`缩放后页面尺寸: ${box.w}x${box.h}`);
 
 ### renderPage(pageDiv, page, templates, fonts, drawParams, multiMedia)
 
-在指定的DOM元素中渲染单个页面。（高级API，通常无需直接调用）
+在指定的 DOM 元素中渲染单个页面。批量测量后逐页绘制时，请将该页测得的宽高以 CSS 像素写入容器的 `style.width` 和 `style.height`，再传入测量时的页面对象。
 
 **参数：**
 

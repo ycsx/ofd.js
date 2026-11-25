@@ -22,7 +22,8 @@ module.exports = {
     '^@/(.*)$': '<rootDir>/src/$1',
   },
   transform: {
-    '^.+\\.js$': 'babel-jest',
+    '^.+\\.js$': ['babel-jest', { configFile: require.resolve('./.babelrc') }],
   },
+  transformIgnorePatterns: ['/node_modules/(?!@lapo/asn1js/)'],
   testTimeout: 10000,
 };
