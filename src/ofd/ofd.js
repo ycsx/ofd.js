@@ -27,12 +27,7 @@
  */
 
 import {calPageBox, calPageBoxScale, renderPage, renderPageContent} from "./ofd_render";
-import {pipeline} from "./pipeline";
-import {
-    getDocRoots,
-    parseSingleDoc,
-    unzipOfd
-} from "./ofd_parser";
+import {parseOfdArchive} from "./ofd_parser";
 import {getPageScal, setPageScal} from "./ofd_util";
 import * as JSZipUtils from "jszip-utils";
 
@@ -56,7 +51,7 @@ export const parseOfdDocument = function (options) {
 
 const doParseOFD = function (options) {
     global.xmlParseFlag = 0;
-    pipeline.call(this, async () => await unzipOfd(options.ofd), getDocRoots, parseSingleDoc)
+    parseOfdArchive(options.ofd)
         .then(res => {
             if (options.success) {
                 options.success(res);

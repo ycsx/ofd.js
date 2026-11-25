@@ -118,7 +118,7 @@ const file = document.getElementById('fileInput').files[0];
 // 解析文档
 parseOfdDocument({
   ofd: file,
-  success: (ofdDoc) => {
+  success: ([ofdDoc]) => {
     // 渲染页面
     const pages = renderOfd(window.innerWidth, ofdDoc);
     pages.forEach(page => {
@@ -144,7 +144,7 @@ export function OfdViewer() {
   const handleFile = (file) => {
     parseOfdDocument({
       ofd: file,
-      success: (doc) => {
+      success: ([doc]) => {
         const pageElements = renderOfd(1024, doc);
         setPages(pageElements.map(el => ({
           id: el.id,
@@ -179,7 +179,7 @@ export function OfdViewer() {
 
 <script setup>
 import { ref } from 'vue';
-import { parseOfdDocument, renderOfd } from 'ofd';
+import { parseOfdDocument, renderOfd } from '@ycsx/ofdjs';
 
 const pages = ref([]);
 
@@ -187,7 +187,7 @@ const handleFile = (event) => {
   const file = event.target.files[0];
   parseOfdDocument({
     ofd: file,
-    success: (doc) => {
+    success: ([doc]) => {
       const pageElements = renderOfd(1024, doc);
       pages.value = pageElements.map(el => ({
         id: el.id,

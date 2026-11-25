@@ -79,7 +79,7 @@ import {
    ```javascript
    parseOfdDocument({
      ofd: file,                    // File对象
-     success: (doc) => { ... },    // 解析成功回调
+     success: (documents) => { ... }, // 文档数组
      fail: (error) => { ... }      // 解析失败回调
    });
    ```
@@ -107,9 +107,9 @@ const file = document.getElementById('fileInput').files[0];
 
 parseOfdDocument({
   ofd: file,
-  success: (ofdDocument) => {
-    console.log('解析成功:', ofdDocument);
-    console.log('页数:', ofdDocument.pages.length);
+  success: (documents) => {
+    console.log('解析成功:', documents);
+    documents.forEach(doc => console.log('页数:', doc.pages.length));
   },
   fail: (error) => {
     console.error('解析失败:', error.message);
@@ -158,8 +158,8 @@ fileInput.addEventListener('change', (e) => {
   // 调用库函数解析
   parseOfdDocument({
     ofd: file,
-    success: (doc) => {
-      renderDocument(doc);  // 渲染文档
+    success: ([doc]) => {
+      if (doc) renderDocument(doc);  // 渲染第一个文档
     },
     fail: (error) => {
       showError(error);     // 显示错误

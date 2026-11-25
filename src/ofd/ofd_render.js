@@ -30,6 +30,7 @@ import {
     setPageScal,
     converterBox,
 } from "./ofd_util";
+import {attachSourceOrder} from "./ordered_page_xml";
 
 export const renderPageBox = function (screenWidth, pages, document) {
     let pageBoxs = [];
@@ -48,7 +49,9 @@ const measuredPageWidths = new WeakMap();
 const getPageBox = function (document, page) {
     const pageId = Object.keys(page)[0];
     const area = page[pageId].json['ofd:Area'] || document['ofd:CommonData']['ofd:PageArea'];
-    const box = parseStBox(area['ofd:PhysicalBox'] || area['ofd:ApplicationBox'] || area['ofd:ContentBox']);
+    const box = parseStBox(area['ofd:PhysicalBox'] || area.PhysicalBox
+        || area['ofd:ApplicationBox'] || area.ApplicationBox
+        || area['ofd:ContentBox'] || area.ContentBox);
     measuredPageWidths.set(page, box.w);
     return box;
 }
@@ -61,18 +64,6 @@ export const calPageBox = function (screenWidth, document, page) {
 
 export const calPageBoxScale = function (document, page) {
     return converterBox(getPageBox(document, page));
-}
-
-// 根据模板来渲染层节点
-const renderLayerFromTemplate = function (tpls, template, pageDiv, fontResObj, drawParamResObj, multiMediaResObj) {
-    let array = [];
-    const layers = tpls[template['@_TemplateID']]['json']['ofd:Content']['ofd:Layer'];
-    array = array.concat(layers);
-    for (let layer of array) {
-        if (layer) {
-            renderLayer(pageDiv, fontResObj, drawParamResObj, multiMediaResObj, layer, false);
-        }
-    }
 }
 
 export const renderPage = function (pageDiv, page, tpls, fontResObj, drawParamResObj, multiMediaResObj) {
@@ -89,34 +80,28 @@ export const renderPage = function (pageDiv, page, tpls, fontResObj, drawParamRe
     }
 }
 
-export const renderPageContent = function (pageDiv, page, tpls, fontResObj, drawParamResObj, multiMediaResObj) {
-    const pageId = Object.keys(page)[0];
-    const template = page[pageId]['json']['ofd:Template'];
-    if (Array.isArray(template)) { // 当使用多个模板时
-        template.forEach(item => {
-            /**
-             * 此处只满足 ZOrder 相同的情况
-             * 若 ZOrder 不同，可能需要根据 ZOrder 排序来渲染
-             * 参考 http://www.dajs.gov.cn/attach/0/88a7620d9d3f4e13b2baa52ab3487854.pdf 第 18 页 ZOrder 的属性说明
-             */
-            if (item) {
-                renderLayerFromTemplate(tpls, item, pageDiv, fontResObj, drawParamResObj, multiMediaResObj);
-            }
-        });
-    } else if (template) { // 当使用单个模板时
-        renderLayerFromTemplate(tpls, template, pageDiv, fontResObj, drawParamResObj, multiMediaResObj);
-    } else {
-        console.error('ofd:Template not found!');
-    }
-
-    const contentLayers = page[pageId]?.json?.['ofd:Content']?.['ofd:Layer'];
-    let array = [];
-    array = array.concat(contentLayers);
-    for (let contentLayer of array) {
-        if (contentLayer) {
-            renderLayer(pageDiv, fontResObj, drawParamResObj, multiMediaResObj, contentLayer, false);
+const renderPageLayers = function (pageDiv, pageData, tpls, fontResObj, drawParamResObj, multiMediaResObj, isStampAnnot) {
+    const backgrounds = [];
+    const foregrounds = [];
+    for (const ref of [].concat(pageData.json['ofd:Template'] || [])) {
+        const template = tpls?.[ref['@_TemplateID']];
+        if (template) {
+            const list = ref['@_ZOrder'] === 'Foreground' ? foregrounds : backgrounds;
+            list.push(template);
         }
     }
+    for (const data of [...backgrounds, pageData, ...foregrounds]) {
+        attachSourceOrder(data.xml, data.json);
+        const layers = data.json['ofd:Content']?.['ofd:Layer'];
+        for (const layer of [].concat(layers || [])) {
+            renderLayer(pageDiv, fontResObj, drawParamResObj, multiMediaResObj, layer, isStampAnnot);
+        }
+    }
+}
+
+export const renderPageContent = function (pageDiv, page, tpls, fontResObj, drawParamResObj, multiMediaResObj) {
+    const pageId = Object.keys(page)[0];
+    renderPageLayers(pageDiv, page[pageId], tpls, fontResObj, drawParamResObj, multiMediaResObj, false);
     if (page[pageId].stamp) {
         for (const stamp of page[pageId].stamp) {
           if (stamp.type === 'ofd') {
@@ -168,50 +153,26 @@ const renderSealPage = function (pageDiv, docObj, pages, tpls, isStampAnnot, sta
         div.setAttribute('data-signed-info', `${JSON.stringify(signedInfo)}`);
         const contentWrapper = document.createElement('div');
         contentWrapper.setAttribute('style', `position:absolute;left:0;top:0;width:${sealBox.w}px;height:${sealBox.h}px;transform:scale(${scaleX}, ${scaleY});transform-origin:0 0;`);
-        const template = page[pageId]['json']['ofd:Template'];
-        const templateArray = [];
-        templateArray.push(...[].concat(template || []));
-        for (const item of templateArray) {
-            const tpl = item && tpls && tpls[item['@_TemplateID']];
-            const layers = tpl?.json?.['ofd:Content']?.['ofd:Layer'];
-            for (let layer of [].concat(layers || [])) {
-                if (layer) {
-                    renderLayer(contentWrapper, fontResObj, drawParamResObj, multiMediaResObj, layer, isStampAnnot);
-                }
-            }
-        }
-        const contentLayers = page[pageId]['json']['ofd:Content']['ofd:Layer'];
-        let array = [];
-        array = array.concat(contentLayers);
-        for (let contentLayer of array) {
-            if (contentLayer) {
-                renderLayer(contentWrapper, fontResObj, drawParamResObj, multiMediaResObj, contentLayer, isStampAnnot);
-            }
-        }
+        renderPageLayers(contentWrapper, page[pageId], tpls, fontResObj, drawParamResObj, multiMediaResObj, isStampAnnot);
         div.appendChild(contentWrapper);
         pageDiv.appendChild(div);
     }
 }
 
-const appendObjects = function (target, value) {
-    for (const item of [].concat(value || [])) {
-        if (item) {
-            target.push(item);
+const collectLayerObjects = function (layer, objects) {
+    for (const type of Object.keys(layer || {})) {
+        if (type !== 'ofd:PageBlock' && type !== 'ofd:ImageObject'
+            && type !== 'ofd:PathObject' && type !== 'ofd:TextObject') {
+            continue;
+        }
+        for (const object of [].concat(layer[type] || [])) {
+            if (type === 'ofd:PageBlock') {
+                collectLayerObjects(object, objects);
+            } else if (object) {
+                objects.push({type, object});
+            }
         }
     }
-}
-
-const collectLayerObjects = function (layer, key) {
-    const objects = [];
-    appendObjects(objects, layer?.[key]);
-    for (const pageBlock of [].concat(layer?.['ofd:PageBlock'] || [])) {
-        appendObjects(objects, pageBlock?.[key]);
-        const nestedBlocks = [].concat(pageBlock?.['ofd:PageBlock'] || []);
-        for (const nestedBlock of nestedBlocks) {
-            appendObjects(objects, collectLayerObjects(nestedBlock, key));
-        }
-    }
-    return objects;
 }
 
 const renderLayer = function (pageDiv, fontResObj, drawParamResObj, multiMediaResObj, layer, isStampAnnot) {
@@ -243,25 +204,30 @@ const renderLayer = function (pageDiv, fontResObj, drawParamResObj, multiMediaRe
             lineWith = converterDpi(drawParamResObj[drawParam]['LineWidth']);
         }
     }
-    const imageObjectArray = collectLayerObjects(layer, 'ofd:ImageObject');
-    for (const imageObject of imageObjectArray) {
-        let element = renderImageObject(pageDiv.style.width, pageDiv.style.height, multiMediaResObj, imageObject)
-        if (element) {
-            fragment.appendChild(element);
+    const objects = [];
+    collectLayerObjects(layer, objects);
+    if (objects.every(({object}) => Number.isFinite(object.pfIndex))) {
+        objects.sort((a, b) => a.object.pfIndex - b.object.pfIndex);
+    }
+    let paths = [];
+    const flushPaths = () => {
+        if (paths.length) {
+            fragment.appendChild(renderPathObjectsOnCanvas(pageDiv, drawParamResObj, paths, fillColor, strokeColor, lineWith, isStampAnnot));
+            paths = [];
         }
-    }
-    const pathObjectArray = collectLayerObjects(layer, 'ofd:PathObject');
-    if (pathObjectArray.length > 0) {
-        const canvas = renderPathObjectsOnCanvas(pageDiv, drawParamResObj, pathObjectArray, fillColor, strokeColor, lineWith, isStampAnnot);
-        if (canvas) {
-            fragment.appendChild(canvas);
+    };
+    for (const {type, object} of objects) {
+        if (type === 'ofd:PathObject') {
+            paths.push(object);
+            continue;
         }
+        flushPaths();
+        const element = type === 'ofd:ImageObject'
+            ? renderImageObject(pageDiv.style.width, pageDiv.style.height, multiMediaResObj, object)
+            : renderTextObject(fontResObj, object, fillColor);
+        if (element) fragment.appendChild(element);
     }
-    const textObjectArray = collectLayerObjects(layer, 'ofd:TextObject');
-    for (const textObject of textObjectArray) {
-        let svg = renderTextObject(fontResObj, textObject, fillColor, strokeColor);
-        fragment.appendChild(svg);
-    }
+    flushPaths();
     pageDiv.appendChild(fragment);
 }
 
@@ -271,13 +237,15 @@ const createSvgTextElement = function (textCodePoint, textObject, style, fillCol
     text.setAttribute('y', textCodePoint.y);
     text.setAttribute('xml:space', 'preserve');
     text.textContent = textCodePoint.text;
+    const transforms = [];
     if (ctm) {
         const ctms = parseCtm(ctm);
-        text.setAttribute('transform', `matrix(${ctms[0]} ${ctms[1]} ${ctms[2]} ${ctms[3]} ${converterDpi(ctms[4])} ${converterDpi(ctms[5])})`)
+        transforms.push(`matrix(${ctms[0]} ${ctms[1]} ${ctms[2]} ${ctms[3]} ${converterDpi(ctms[4])} ${converterDpi(ctms[5])})`);
     }
     if (hScale) {
-        text.setAttribute('transform', `matrix(${hScale}, 0, 0, 1, ${(1-hScale)*textCodePoint.x}, 0)`)
+        transforms.push(`matrix(${hScale} 0 0 1 ${(1 - hScale) * textCodePoint.x} 0)`);
     }
+    if (transforms.length) text.setAttribute('transform', transforms.join(' '));
     text.setAttribute('fill', fillColor);
     text.setAttribute('fill-opacity', fillOpacity);
     text.setAttribute('style', style)
@@ -285,41 +253,42 @@ const createSvgTextElement = function (textCodePoint, textObject, style, fillCol
     return text;
 }
 
-const getImageBoundary = function (imageObject) {
-    const boundary = parseStBox(imageObject['@_Boundary']);
-    const ctm = imageObject['@_CTM'];
-    if (ctm && boundary.x === 0 && boundary.y === 0) {
-        const ctms = parseCtm(ctm);
-        return {
-            x: converterDpi(ctms[4]),
-            y: converterDpi(ctms[5]),
-            w: converterDpi(Math.abs(ctms[0])),
-            h: converterDpi(Math.abs(ctms[3]))
-        };
-    }
-    return converterBox(boundary);
-}
-
 export const renderImageObject = function (pageWidth, pageHeight, multiMediaResObj, imageObject){
-    const boundary = getImageBoundary(imageObject);
     const resId = imageObject['@_ResourceID'];
     const media = multiMediaResObj?.[resId];
     if (!media) {
         console.warn(`OFD image resource not found: ${resId}`);
         return null;
     }
-    const zIndex = imageObject['pfIndex'] ?? imageObject['@_ID'] ?? 0;
+    const physicalBox = parseStBox(imageObject['@_Boundary']);
+    if (!physicalBox || physicalBox.w <= 0 || physicalBox.h <= 0) return null;
+    const box = converterBox(physicalBox);
+    const container = document.createElement('div');
+    container.style.cssText = `overflow:hidden;position:absolute;left:${box.x}px;top:${box.y}px;width:${box.w}px;height:${box.h}px`;
+    let image;
     if (media.format === 'gbig2') {
-        const img = media.img;
-        const width = media.width;
-        const height = media.height;
-        return renderImageOnCanvas(img, width, height, boundary, zIndex);
+        image = renderImageOnCanvas(media.img, media.width, media.height);
+        image.style.imageRendering = 'pixelated';
     } else {
-        return renderImageOnDiv(pageWidth, pageHeight, media.img, boundary, false, false, null, null, zIndex);
+        image = document.createElement('img');
+        image.src = media.img;
+        image.decoding = 'sync';
     }
+    image.style.display = 'block';
+    image.style.width = '100%';
+    image.style.height = '100%';
+    const ctm = imageObject['@_CTM'];
+    if (ctm) {
+        // Image CTMs map a unit square into the boundary's local millimeter coordinates.
+        const [a, b, c, d, e, f] = parseCtm(ctm);
+        image.style.transformOrigin = '0 0';
+        image.style.transform = `matrix(${a / physicalBox.w}, ${b / physicalBox.w}, ${c / physicalBox.h}, ${d / physicalBox.h}, ${converterDpi(e)}, ${converterDpi(f)})`;
+    }
+    container.appendChild(image);
+    return container;
 }
 
-const renderImageOnCanvas = function (img, imgWidth, imgHeight, boundary, oid){
+const renderImageOnCanvas = function (img, imgWidth, imgHeight){
     const arr = new Uint8ClampedArray(4 * imgWidth * imgHeight);
     for (var i = 0; i < img.length; i++) {
         arr[4 * i] = img[i];
@@ -334,16 +303,7 @@ const renderImageOnCanvas = function (img, imgWidth, imgHeight, boundary, oid){
     const sourceContext = sourceCanvas.getContext('2d');
     sourceContext.putImageData(imageData, 0, 0);
 
-    const pixelRatio = window.devicePixelRatio || 1;
-    let canvas = document.createElement('canvas');
-    canvas.width = Math.max(1, Math.ceil(boundary.w * pixelRatio));
-    canvas.height = Math.max(1, Math.ceil(boundary.h * pixelRatio));
-    let context = canvas.getContext('2d');
-    context.imageSmoothingEnabled = false;
-    context.scale(pixelRatio, pixelRatio);
-    context.drawImage(sourceCanvas, 0, 0, boundary.w, boundary.h);
-    canvas.setAttribute('style', `position:absolute;left:${boundary.x}px;top:${boundary.y}px;width:${boundary.w}px;height:${boundary.h}px;z-index:${oid};image-rendering:-webkit-optimize-contrast;image-rendering:crisp-edges;`)
-    return canvas;
+    return sourceCanvas;
 }
 
 const renderImageOnHighDpiCanvas = function (imgSrc, width, height, isStampAnnot) {
@@ -434,7 +394,7 @@ export const renderTextObject = function (fontResObj, textObject, defaultFillCol
     let height = boundary.h;
     let left = boundary.x;
     let top = boundary.y;
-    svg.setAttribute('style', `overflow:visible;position:absolute;width:${width}px;height:${height}px;left:${left}px;top:${top}px;z-index:${textObject['pfIndex']}`);
+    svg.setAttribute('style', `overflow:visible;position:absolute;width:${width}px;height:${height}px;left:${left}px;top:${top}px`);
     return svg;
 }
 
@@ -588,16 +548,14 @@ export const renderPathObjectsOnCanvas = function (pageDiv, drawParamResObj, pat
     const pixelRatio = window.devicePixelRatio || 1;
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d');
-    const sortedPathObjects = pathObjects.slice().sort((a, b) => (a['pfIndex'] || 0) - (b['pfIndex'] || 0));
-    const zIndex = Math.min(...sortedPathObjects.map(pathObject => pathObject['pfIndex'] || 0));
     canvas.width = Math.ceil(pageWidth * pixelRatio);
     canvas.height = Math.ceil(pageHeight * pixelRatio);
     canvas.style.width = `${pageWidth}px`;
     canvas.style.height = `${pageHeight}px`;
-    canvas.setAttribute('style', `position:absolute;left:0;top:0;width:${pageWidth}px;height:${pageHeight}px;z-index:${zIndex};pointer-events:none;`);
+    canvas.setAttribute('style', `position:absolute;left:0;top:0;width:${pageWidth}px;height:${pageHeight}px;pointer-events:none;`);
     context.scale(pixelRatio, pixelRatio);
     context.textRendering = 'geometricPrecision';
-    for (const pathObject of sortedPathObjects) {
+    for (const pathObject of pathObjects) {
         let boundary = parseStBox(pathObject['@_Boundary']);
         boundary = converterBox(boundary);
         const abbreviatedData = pathObject['ofd:AbbreviatedData'];
