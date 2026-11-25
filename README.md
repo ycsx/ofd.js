@@ -38,12 +38,12 @@ import { parseOfdDocument, renderOfd } from '@ycsx/ofdjs';
 // 1. 解析OFD文件
 parseOfdDocument({
   ofd: 'path/to/file.ofd',  // 文件路径、File对象或ArrayBuffer
-  success: (ofdDocument) => {
-    console.log('解析成功', ofdDocument);
+  success: (documents) => {
+    console.log('解析成功', documents);
     
     // 2. 渲染文档到页面
     const screenWidth = window.innerWidth;
-    const pages = renderOfd(screenWidth, ofdDocument[0]);
+    const pages = renderOfd(screenWidth, documents[0]);
     
     // 3. 添加到DOM
     pages.forEach(pageDiv => {
@@ -66,10 +66,10 @@ setPageScale(1.2);
 
 parseOfdDocument({
   ofd: file,
-  success: (ofdDocument) => {
+  success: (documents) => {
     // 根据设置的缩放比例渲染
-    const pages = renderOfdByScale(ofdDocument[0]);
-    document.getElementById('container').appendChild(...pages);
+    const pages = renderOfdByScale(documents[0]);
+    pages.forEach(page => document.getElementById('container').appendChild(page));
   }
 });
 
@@ -142,8 +142,8 @@ console.log('Current scale:', getPageScale());
 
     parseOfdDocument({
       ofd: file,
-      success: (ofdDocument) => {
-        currentDocument = ofdDocument;
+      success: (documents) => {
+        currentDocument = documents[0];
         currentPageIndex = 0;
         currentScale = 1;
         renderCurrentPage();
@@ -282,7 +282,7 @@ const handleClear = () => {
 |------|------|------|
 | `options` | Object | 配置对象 |
 | `options.ofd` | string \| File \| ArrayBuffer | OFD文件源（文件路径、File对象或二进制数据） |
-| `options.success` | Function | 成功回调，接收解析后的文档对象 |
+| `options.success` | `(documents: OFDDocument[]) => void` | 按文件中的顺序接收所有文档。单文档文件也返回数组。 |
 | `options.fail` | Function | 失败回调，接收错误对象 |
 
 **返回值：** 无
@@ -292,8 +292,8 @@ const handleClear = () => {
 ```javascript
 parseOfdDocument({
   ofd: fileInput.files[0],
-  success: (document) => {
-    console.log('页数:', document.pages.length);
+  success: (documents) => {
+    documents.forEach(doc => console.log('页数:', doc.pages.length));
   },
   fail: (error) => {
     console.error('错误:', error);
@@ -312,7 +312,7 @@ parseOfdDocument({
 | 参数 | 类型 | 描述 |
 |------|------|------|
 | `screenWidth` | number | 页面显示宽度（像素） |
-| `ofdDocument` | Object | 通过 `parseOfdDocument` 获得的文档对象 |
+| `ofdDocument` | OFDDocument | 解析结果中的一个文档，如 `documents[0]` |
 
 **返回值：** Array&lt;HTMLDivElement&gt; - 页面DOM元素数组
 
@@ -337,7 +337,7 @@ pages.forEach(pageDiv => {
 
 | 参数 | 类型 | 描述 |
 |------|------|------|
-| `ofdDocument` | Object | 通过 `parseOfdDocument` 获得的文档对象 |
+| `ofdDocument` | OFDDocument | 解析结果中的一个文档，如 `documents[0]` |
 
 **返回值：** Array&lt;HTMLDivElement&gt; - 页面DOM元素数组
 
@@ -458,7 +458,7 @@ console.log(`缩放后页面尺寸: ${box.w}x${box.h}`);
 ```javascript
 parseOfdDocument({
   ofd: file,
-  success: (document) => {
+  success: () => {
     console.log('解析成功');
   },
   fail: (error) => {

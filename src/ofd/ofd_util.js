@@ -169,7 +169,8 @@ export const deltaFormatter = function (delta) {
 export const calTextPoint = function (textCodes) {
     let x = 0;
     let y = 0;
-    let textCodePointList = [];
+    const textCodePointList = [];
+    let firstPointAt;
     if (!textCodes) {
         return textCodePointList;
     }
@@ -201,6 +202,27 @@ export const calTextPoint = function (textCodes) {
             textStr = decodeHtml(textStr);
             textStr = textStr.replace(/&#x20;/g, ' ');
             const hasPositionDelta = deltaXList.length > 0 || deltaYList.length > 0;
+            if (!hasPositionDelta) {
+                if (!firstPointAt) {
+                    firstPointAt = new Map();
+                    for (const point of textCodePointList) {
+                        const key = `${point.x},${point.y}`;
+                        if (!firstPointAt.has(key)) firstPointAt.set(key, point);
+                    }
+                }
+                const pointX = converterDpi(x);
+                const pointY = converterDpi(y);
+                const key = `${pointX},${pointY}`;
+                const first = firstPointAt.get(key);
+                if (first) {
+                    first.text += textStr;
+                } else {
+                    const point = { x: pointX, y: pointY, text: textStr };
+                    textCodePointList.push(point);
+                    firstPointAt.set(key, point);
+                }
+                continue;
+            }
             for (let i = 0; i < textStr.length; i++) {
                 if (i > 0 && deltaXList.length > 0) {
                     x += deltaXList[(i - 1)] || 0;
@@ -211,17 +233,12 @@ export const calTextPoint = function (textCodes) {
                 let text = textStr.substring(i, i + 1);
                 const pointX = converterDpi(x);
                 const pointY = converterDpi(y);
-                if (!hasPositionDelta) {
-                    let filterPoint = textCodePointList.find((textCodePoint) => {
-                        return textCodePoint.y == pointY && textCodePoint.x == pointX
-                    });
-                    if (filterPoint) {
-                        filterPoint.text += text;
-                        continue;
-                    }
-                }
                 let textCodePoint = { 'x': pointX, 'y': pointY, 'text': text };
                 textCodePointList.push(textCodePoint);
+                if (firstPointAt) {
+                    const key = `${pointX},${pointY}`;
+                    if (!firstPointAt.has(key)) firstPointAt.set(key, textCodePoint);
+                }
             }
         }
     }
@@ -319,8 +336,7 @@ export const parseStBox = function (obj) {
 }
 
 export const parseCtm = function (ctm) {
-    let array = ctm.split(' ');
-    return array;
+    return ctm.trim().split(/\s+/);
 }
 
 export const parseColor = function (color) {
