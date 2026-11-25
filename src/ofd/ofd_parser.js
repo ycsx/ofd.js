@@ -18,22 +18,19 @@
  *
  */
 
-import {pipeline} from "./pipeline";
 import JsZip from "jszip";
 import {parseStBox, getExtensionByPath, replaceFirstSlash} from "./ofd_util";
-let parser = require('ofd-xml-parser');
+import {parseOfdXml} from './ordered_page_xml';
 import {Jbig2Image} from '../jbig2/jbig2';
 import {parseSesSignature} from "./ses_signature_parser";
 
 export const unzipOfd = function (file) {
-    return new Promise((resolve, reject) => {
-        JsZip.loadAsync(file)
-            .then(function (zip) {
-                resolve(zip);
-            }, function (e) {
-                reject(e);
-            });
-    });
+    return JsZip.loadAsync(file);
+}
+
+export const parseOfdArchive = async function (file) {
+    const zip = await unzipOfd(file);
+    return parseSingleDoc(await getDocRoots(zip));
 }
 
 export const getDocRoots = async function (zip) {
@@ -50,10 +47,11 @@ export const parseSingleDoc = async function ([zip, array]) {
         if (docbody) {
             let res = await doGetDocRoot(zip, docbody);
             res = await getDocument(res);
-            res = await getDocumentRes(res);
-            res = await getPublicRes(res);
-            res = await getTemplatePage(res);
-            res = await getPage(res);
+            const files = documentFiles(zip);
+            res = await getDocumentRes(res, files);
+            res = await getPublicRes(res, files);
+            res = await getTemplatePage(res, files);
+            res = await getPage(res, files);
             docs.push(res);
         }
     }
@@ -63,7 +61,7 @@ export const parseSingleDoc = async function ([zip, array]) {
 export const doGetDocRoot = async function (zip, docbody) {
     let docRoot = docbody['ofd:DocRoot'];
     docRoot = replaceFirstSlash(docRoot);
-    const doc = docRoot.split('/')[0];
+    const doc = directoryOf(docRoot);
     const signatures = docbody['ofd:Signatures'];
     const stampAnnot = await getSignature(zip, signatures, doc);
     let stampAnnotArray = {};
@@ -137,7 +135,7 @@ const getAnnotations = async function (annoBase, annotations, doc, zip) {
         }
 
         if (zip.files[fileLoc]) {
-            const data = await getJsonFromXmlContent(zip, fileLoc);
+            const data = await getJsonFromXmlContent(zip, fileLoc, true);
 
             let array = [];
             array = array.concat(data['json']['ofd:PageAnnot']['ofd:Annot']);
@@ -159,68 +157,98 @@ const getAnnotations = async function (annoBase, annotations, doc, zip) {
     return annotationObjs;
 }
 
-export const getDocumentRes = async function ([zip, doc, Document, stampAnnot, annotationObjs]) {
-    let documentResPath = Document['ofd:CommonData']['ofd:DocumentRes'];
-    let fontResObj = {};
-    let drawParamResObj = {};
-    let multiMediaResObj = {};
-    if (documentResPath) {
-        if (documentResPath.indexOf(doc) == -1) {
-            documentResPath = `${doc}/${documentResPath}`;
-        }
-        if (zip.files[documentResPath]) {
-            const data = await getJsonFromXmlContent(zip, documentResPath);
-            const documentResObj = data['json']['ofd:Res'];
-            fontResObj = await getFont(documentResObj);
-            drawParamResObj = await getDrawParam(documentResObj);
-            multiMediaResObj = await getMultiMediaRes(zip, documentResObj, doc);
-        }
+const directoryOf = path => path.substring(0, path.lastIndexOf('/'));
+
+// OFD references are relative to the containing file (or start at the ZIP root with '/').
+const resolvePath = function (directory, reference) {
+    const parts = [];
+    const path = reference.startsWith('/') ? reference : directory + '/' + reference;
+    for (const part of path.split('/')) {
+        if (part === '..') parts.pop();
+        else if (part && part !== '.') parts.push(part);
     }
-    return [zip, doc, Document, stampAnnot, annotationObjs, fontResObj, drawParamResObj, multiMediaResObj];
+    return parts.join('/');
 }
 
-export const getPublicRes = async function ([zip, doc, Document, stampAnnot, annotationObjs, fontResObj, drawParamResObj, multiMediaResObj]) {
-    let publicResPath = Document['ofd:CommonData']['ofd:PublicRes'];
-    if (publicResPath) {
-        if (publicResPath.indexOf(doc) == -1) {
-            publicResPath = `${doc}/${publicResPath}`;
-        }
-        if (zip.files[publicResPath]) {
-            const data = await getJsonFromXmlContent(zip, publicResPath);
-            const publicResObj = data['json']['ofd:Res'];
-            let fontObj = await getFont(publicResObj);
-            fontResObj = Object.assign(fontResObj, fontObj);
-            let drawParamObj = await getDrawParam(publicResObj);
-            drawParamResObj = Object.assign(drawParamResObj, drawParamObj);
-            let multiMediaObj = await getMultiMediaRes(zip, publicResObj, doc);
-            multiMediaResObj = Object.assign(multiMediaResObj, multiMediaObj);
-        }
-    }
-    return [zip, doc, Document, stampAnnot, annotationObjs, fontResObj, drawParamResObj, multiMediaResObj];
+const documentFiles = function (zip) {
+    let caseIndex;
+    return {
+        images: new Map(),
+        find(...paths) {
+            for (const path of paths) {
+                const entry = zip.file(path);
+                if (entry) return entry;
+            }
+            // Some producers vary the case between XML and ZIP. Never guess between two entries.
+            if (!caseIndex) {
+                caseIndex = new Map();
+                zip.forEach((path, entry) => {
+                    if (entry.dir) return;
+                    const key = path.toLowerCase();
+                    caseIndex.set(key, caseIndex.has(key) ? null : entry);
+                });
+            }
+            for (const path of paths) {
+                const entry = caseIndex.get(path.toLowerCase());
+                if (entry) return entry;
+            }
+            return null;
+        },
+    };
 }
 
-export const getTemplatePage = async function ([zip, doc, Document, stampAnnot, annotationObjs, fontResObj, drawParamResObj, multiMediaResObj]) {
+const documentEntry = function (files, doc, path) {
+    const relative = resolvePath(doc, path);
+    return path.startsWith(doc + '/') ? files.find(relative, resolvePath('', path)) : files.find(relative);
+}
+
+const readResourceCatalogs = async function (zip, doc, paths, files, fonts, drawParams, media) {
+    for (const path of [].concat(paths || [])) {
+        if (!path) continue;
+        const entry = documentEntry(files, doc, path);
+        if (!entry) continue;
+        const data = await getJsonFromXmlContent(zip, entry.name);
+        const res = data.json['ofd:Res'];
+        if (!res) continue;
+        Object.assign(fonts, await getFont(res));
+        Object.assign(drawParams, await getDrawParam(res));
+        Object.assign(media, await getMultiMediaRes(files, res, entry.name, doc));
+    }
+}
+
+export const getDocumentRes = async function ([zip, doc, Document, stampAnnot, annotationObjs], files = documentFiles(zip)) {
+    const fonts = {}, drawParams = {}, media = {};
+    await readResourceCatalogs(zip, doc, Document['ofd:CommonData']['ofd:DocumentRes'], files, fonts, drawParams, media);
+    return [zip, doc, Document, stampAnnot, annotationObjs, fonts, drawParams, media];
+}
+
+export const getPublicRes = async function ([zip, doc, Document, stampAnnot, annotationObjs, fonts, drawParams, media], files = documentFiles(zip)) {
+    await readResourceCatalogs(zip, doc, Document['ofd:CommonData']['ofd:PublicRes'], files, fonts, drawParams, media);
+    return [zip, doc, Document, stampAnnot, annotationObjs, fonts, drawParams, media];
+}
+
+export const getTemplatePage = async function ([zip, doc, Document, stampAnnot, annotationObjs, fontResObj, drawParamResObj, multiMediaResObj], files = documentFiles(zip)) {
     let templatePages = Document['ofd:CommonData']['ofd:TemplatePage'];
     let array = [];
     array = array.concat(templatePages);
     let tpls = {};
     for (const templatePage of array) {
         if (templatePage) {
-            let pageObj = await parsePage(zip, templatePage, doc);
+            let pageObj = await parsePage(zip, templatePage, doc, files);
             tpls[Object.keys(pageObj)[0]] = pageObj[Object.keys(pageObj)[0]];
         }
     }
     return [zip, doc, Document, stampAnnot, annotationObjs, tpls, fontResObj, drawParamResObj, multiMediaResObj];
 }
 
-export const getPage = async function ([zip, doc, Document, stampAnnot, annotationObjs, tpls, fontResObj, drawParamResObj, multiMediaResObj]) {
+export const getPage = async function ([zip, doc, Document, stampAnnot, annotationObjs, tpls, fontResObj, drawParamResObj, multiMediaResObj], files = documentFiles(zip)) {
     let pages = Document['ofd:Pages']['ofd:Page'];
     let array = [];
     array = array.concat(pages);
     let res = [];
     for (const page of array) {
         if (page) {
-            let pageObj = await parsePage(zip, page, doc);
+            let pageObj = await parsePage(zip, page, doc, files);
             const pageId = Object.keys(pageObj)[0];
             const currentPageStamp = stampAnnot[pageId];
             if (currentPageStamp) {
@@ -284,48 +312,51 @@ const getDrawParam = async function (res) {
     return drawParamResObj;
 }
 
-const getMultiMediaRes = async function (zip, res, doc) {
-    const multiMedias = res['ofd:MultiMedias'];
-    let multiMediaResObj = {};
-    if (multiMedias) {
-        let array = [];
-        array = array.concat(multiMedias['ofd:MultiMedia']);
-        for (const item of array) {
-            if (item) {
-                let file = item['ofd:MediaFile'];
-                if (res['@_BaseLoc']) {
-                    if (file.indexOf(res['@_BaseLoc']) === -1) {
-                        file = `${res['@_BaseLoc']}/${file}`
-                    }
-                }
-                if (file.indexOf(doc) === -1) {
-                    file = `${doc}/${file}`
-                }
-                if (item['@_Type'].toLowerCase() === 'image') {
-                    const format = item['@_Format'];
-                    const ext = getExtensionByPath(file);
-                    if ((format && (format.toLowerCase() === 'gbig2' || format.toLowerCase() === 'jb2')) || ext && (ext.toLowerCase() === 'jb2' || ext.toLowerCase() === 'gbig2')) {
-                        const jbig2 = await parseJbig2ImageFromZip(zip, file);
-                        multiMediaResObj[item['@_ID']] = jbig2;
-                    } else {
-                        const img = await parseOtherImageFromZip(zip, file);
-                        multiMediaResObj[item['@_ID']] = {img, 'format': 'png'};
-                    }
-                } else {
-                    multiMediaResObj[item['@_ID']] = file;
-                }
-            }
+const imageTypes = {
+    jpg: 'jpeg', jpeg: 'jpeg', png: 'png', bmp: 'bmp', gif: 'gif', tif: 'tiff', tiff: 'tiff', webp: 'webp',
+    jbig2: 'gbig2', gbig2: 'gbig2', jb2: 'gbig2',
+};
+
+const getMultiMediaRes = async function (files, res, catalogPath, doc) {
+    const result = {};
+    const catalogDir = directoryOf(catalogPath);
+    const baseLoc = res['@_BaseLoc'] || '';
+    const mediaDir = resolvePath(catalogDir, baseLoc);
+    for (const item of [].concat(res['ofd:MultiMedias']?.['ofd:MultiMedia'] || [])) {
+        const id = item['@_ID'];
+        const path = item['ofd:MediaFile'];
+        const mediaPath = resolvePath(mediaDir, path);
+        // Older packages sometimes repeat the document directory or BaseLoc in MediaFile.
+        const candidates = [mediaPath];
+        if (baseLoc && path.startsWith(baseLoc + '/')) candidates.push(resolvePath(catalogDir, path));
+        if (doc && path.startsWith(doc + '/')) candidates.push(resolvePath('', path));
+        if (doc && baseLoc.startsWith(doc + '/')) candidates.push(resolvePath(baseLoc, path));
+        const entry = files.find(...candidates);
+        if (item['@_Type'].toLowerCase() !== 'image') {
+            result[id] = entry ? entry.name : mediaPath;
+            continue;
         }
+        if (!entry) throw new Error('OFD image not found: ' + mediaPath);
+        const ext = getExtensionByPath(entry.name).toLowerCase();
+        const declared = (item['@_Format'] || '').toLowerCase();
+        const format = imageTypes[ext] === 'gbig2' ? 'gbig2' : imageTypes[declared] || imageTypes[ext] || 'png';
+        const key = format + ':' + entry.name;
+        if (!files.images.has(key)) {
+            const image = format === 'gbig2' ? await readJbig2Image(entry) : {
+                format, img: 'data:image/' + format + ';base64,' + await entry.async('base64'),
+            };
+            files.images.set(key, image);
+        }
+        result[id] = { ...files.images.get(key) };
     }
-    return multiMediaResObj;
+    return result;
 }
 
-const parsePage = async function (zip, obj, doc) {
-    let pagePath = obj['@_BaseLoc'];
-    if (pagePath.indexOf(doc) == -1) {
-        pagePath = `${doc}/${pagePath}`;
-    }
-    const data = await getJsonFromXmlContent(zip, pagePath);
+const parsePage = async function (zip, obj, doc, files) {
+    const path = obj['@_BaseLoc'];
+    const entry = documentEntry(files, doc, path);
+    if (!entry) throw new Error('OFD page not found: ' + resolvePath(doc, path));
+    const data = await getJsonFromXmlContent(zip, entry.name, true);
     let pageObj = {};
     pageObj[obj['@_ID']] = {'json': data['json']['ofd:Page'], 'xml': data['xml']};
     return pageObj;
@@ -401,63 +432,18 @@ const getSignatureData = async function (zip, signature, signatureID) {
 }
 
 const getSealDocumentObj = function (stampAnnot) {
-    return new Promise((resolve, reject) => {
-        pipeline.call(this, async () => await unzipOfd(stampAnnot.sealObj.ofdArray), getDocRoots, parseSingleDoc)
-            .then(res => {
-                resolve(res)
-            })
-            .catch(res => {
-                reject(res);
-            });
-    });
+    return parseOfdArchive(stampAnnot.sealObj.ofdArray);
 }
 
-const getJsonFromXmlContent = async function (zip, xmlName) {
-    return new Promise((resolve, reject) => {
-        if(xmlName === 'Doc_0/TPLS/Tpl_0/Content.xml'){
-            xmlName = 'Doc_0/Tpls/Tpl_0/Content.xml'
-        }
-        zip.files[xmlName].async('string').then(function (content) {
-            let ops = {
-                attributeNamePrefix: "@_",
-                ignoreAttributes: false,
-                parseNodeValue: false,
-                trimValues: false
-            };
-            let jsonObj = parser.parse(content, ops);
-            let result = {'xml': content, 'json': jsonObj};
-            resolve(result);
-        }, function error(e) {
-            reject(e);
-        })
-    });
+const getJsonFromXmlContent = async function (zip, xmlName, drawing = false) {
+    const content = await zip.files[xmlName].async('string');
+    const json = parseOfdXml(content, drawing);
+    return {xml: content, json};
 }
 
-const parseJbig2ImageFromZip = async function (zip, name) {
-    return new Promise((resolve, reject) => {
-        zip.files[name].async('uint8array').then(function (bytes) {
-            let jbig2 = new Jbig2Image();
-            const img = jbig2.parse(bytes);
-            resolve({img, width: jbig2.width, height: jbig2.height, format: 'gbig2'});
-        }, function error(e) {
-            reject(e);
-        })
-    });
+const readJbig2Image = async function (entry) {
+    const bytes = await entry.async('uint8array');
+    const jbig2 = new Jbig2Image();
+    const img = jbig2.parse(bytes);
+    return {img, width: jbig2.width, height: jbig2.height, format: 'gbig2'};
 }
-
-const parseOtherImageFromZip = async function (zip, name) {
-    return new Promise((resolve, reject) => {
-        //去掉开头的'/'
-        if(name.startsWith('/')){
-            name = name.substring(1);
-        }
-        zip.files[name].async('base64').then(function (bytes) {
-            const img = 'data:image/png;base64,' + bytes;
-            resolve(img);
-        }, function error(e) {
-            reject(e);
-        })
-    });
-}
-
-

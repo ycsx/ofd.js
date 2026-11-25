@@ -12,8 +12,7 @@ import {
   renderPage, 
   renderOfdByScale,
   calPageBox,
-  setPageScale,
-  getPageScale
+  setPageScale
 } from '../index.js';
 
 class OFDViewer {
@@ -31,10 +30,14 @@ class OFDViewer {
     return new Promise((resolve, reject) => {
       parseOfdDocument({
         ofd: file,
-        success: (document) => {
-          this.document = document;
+        success: ([ofdDocument]) => {
+          if (!ofdDocument) {
+            reject(new Error('The OFD file contains no documents'));
+            return;
+          }
+          this.document = ofdDocument;
           this.currentPage = 0;
-          resolve(document);
+          resolve(ofdDocument);
         },
         fail: (error) => {
           reject(new Error(`Failed to load OFD: ${error.message}`));
@@ -47,12 +50,12 @@ class OFDViewer {
    * Get page information
    */
   getPageInfo(pageIndex = this.currentPage) {
-    if (!this.document || pageIndex >= this.document.pages.length) {
+    if (!this.document || pageIndex < 0 || pageIndex >= this.document.pages.length) {
       return null;
     }
 
     const page = this.document.pages[pageIndex];
-    const box = calPageBox(page);
+    const box = calPageBox(this.container.clientWidth || 1024, this.document.document, page);
 
     return {
       index: pageIndex,
@@ -61,6 +64,17 @@ class OFDViewer {
       number: pageIndex + 1,
       total: this.document.pages.length
     };
+  }
+
+  createPageElement(pageIndex) {
+    const { width, height } = this.getPageInfo(pageIndex);
+    const { pages, tpls, fontResObj, drawParamResObj, multiMediaResObj } = this.document;
+    const element = document.createElement('div');
+    element.style.position = 'relative';
+    element.style.width = `${width}px`;
+    element.style.height = `${height}px`;
+    renderPage(element, pages[pageIndex], tpls, fontResObj, drawParamResObj, multiMediaResObj);
+    return element;
   }
 
   /**
@@ -75,7 +89,7 @@ class OFDViewer {
     this.isRendering = true;
 
     try {
-      await renderPage(this.document, this.container, this.currentPage);
+      this.container.replaceChildren(this.createPageElement(this.currentPage));
       console.log(`Rendered page ${this.currentPage + 1}`);
     } catch (error) {
       console.error('Rendering failed:', error);
@@ -111,7 +125,8 @@ class OFDViewer {
 
     try {
       setPageScale(scale);
-      await renderOfdByScale(this.document, this.container, scale);
+      const pages = renderOfdByScale(this.document);
+      this.container.replaceChildren(...pages);
       console.log(`Rendered at ${scale * 100}% scale`);
     } catch (error) {
       console.error('Rendering failed:', error);
@@ -130,12 +145,11 @@ class OFDViewer {
     for (let i = 0; i < this.document.pages.length; i++) {
       try {
         // Create a temporary container for each page
-        const tempContainer = document.createElement('div');
+        const tempContainer = this.createPageElement(i);
         tempContainer.id = `page-${i}`;
         tempContainer.style.display = 'none';
         this.container.appendChild(tempContainer);
 
-        await renderPage(this.document, `page-${i}`, i);
         results.push({ page: i + 1, status: 'success' });
 
         console.log(`✓ Page ${i + 1} rendered`);
@@ -160,12 +174,12 @@ class OFDViewer {
     };
 
     this.document.pages.forEach((page, index) => {
-      const box = calPageBox(page);
+      const { width, height } = this.getPageInfo(index);
       stats.pages.push({
         index,
-        width: Math.round(box.w * 100) / 100,
-        height: Math.round(box.h * 100) / 100,
-        area: Math.round(box.w * box.h * 100) / 100
+        width: Math.round(width * 100) / 100,
+        height: Math.round(height * 100) / 100,
+        area: Math.round(width * height * 100) / 100
       });
     });
 

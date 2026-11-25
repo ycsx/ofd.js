@@ -60,8 +60,8 @@ export interface ParseOptions {
    */
   ofd: string | File | ArrayBuffer;
   
-  /** 成功回调函数 */
-  success?: (document: OFDDocument) => void;
+  /** 按 OFD 文件中的顺序接收所有文档。单文档文件也返回数组。 */
+  success?: (documents: OFDDocument[]) => void;
   
   /** 失败回调函数 */
   fail?: (error: Error) => void;
@@ -75,7 +75,7 @@ export interface ParseOptions {
  * ```typescript
  * parseOfdDocument({
  *   ofd: file,
- *   success: (doc) => console.log('parsed', doc),
+ *   success: (documents) => documents.forEach(doc => console.log(doc.pages.length)),
  *   fail: (error) => console.error('failed', error)
  * });
  * ```
